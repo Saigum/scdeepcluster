@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class graphattention_layer(nn.Module):
     def __init__(self,input_size,output_size,adjM):
-        #WkH_{i-1} is of dimension : CurrentNodeShape x N  
+        '''WkH_{i-1} is of dimension : CurrentNodeShape x N'''  
         self.inpshape = input_size
         self.opshape = output_size
         self.A = adjM
@@ -16,7 +16,7 @@ class graphattention_layer(nn.Module):
         self.vkr = nn.Linear(in_features=output_size,out_features= 1)
         self.W =  nn.Linear(in_features=input_size,out_features=output_size) 
     def forward(self, H_k):
-        #H_k represents the previous layer's graph representation
+        '''H_k represents the previous layer's graph representation'''
         M_s = self.A * self.vkt(F.relu(self.W(H_k))).T
         M_r = (self.A * self.vkr(F.relu(self.W(H_k))).T).T
         Attention = F.softmax(F.sigmoid(M_s+M_r))
@@ -26,9 +26,12 @@ class graphattention_layer(nn.Module):
 class encoder(nn.Module):
     def __init__(self,adjM):
         super(encoder,self).__init__( )
-        #remember that in pytorch, your input_size is the last dimension of your input
-        # So when my input is F*N, input_size = F
-        # also a row in my matrix corresponds to a cell's representation
+        ''' 
+        remember that in pytorch, your input_size is the last dimension of your input
+        So when my input is F*N, input_size = F
+        also a row in my matrix corresponds to a cell's representation
+        '''
+       
         self.layer1 = graphattention_layer(input_size=adjM.shape[0]
                                            ,output_size=512
                                            ,adjM=adjM)
@@ -39,13 +42,15 @@ class encoder(nn.Module):
                                            ,output_size=64
                                            ,adjM=adjM)
     def forward(self, X):
-        # X here is the adjacency matrix representing the cell graph
-        # I'm gonna tranpose it once in the start, and then at the end.
+        '''
+        X here is the adjacency matrix representing the cell graph
+        I'm gonna tranpose it once in the start, and then at the end.
+        H3 is of size N*64
+        I'm gonna transpose it back to 64*N
+        '''
         H1 = self.layer1(X.T)
         H2 = self.layer2(H1)
         H3 = self.layer3(H2)
-        # H3 is of size N*64
-        # I'm gonna transpose it back to 64*N
         return H3.T  
     
 class decoder(nn.Module):
@@ -61,11 +66,14 @@ class decoder(nn.Module):
         self.layer3_2 = graphattention_layer(input_size=512,
                                            output_size=gene_embeddings.shape[0],adjM=adjM)
     def forward(self, H):
-        #H here is the encoder's output
-        #I'm gonna stack the gene embeddings to the H matrix
-        #Encoder should have returned a 64*N matrix
-        #Gene embeddings should be of dimension 64* num_nodes , which was 647 for the first run.
-        # So we're concatenating a 64*647 matrix to a 64*N
+        '''
+        H here is the encoder's output
+        I'm gonna stack the gene embeddings to the H matrix
+        Encoder should have returned a 64*N matrix
+        Gene embeddings should be of dimension 64* num_nodes , which was 647 for the first run.
+        So we're concatenating a 64*647 matrix to a 64*N
+        '''
+        
         decoderPass = th.cat((self.gGraph, H), dim=1)
         decoderPass = decoderPass.T
         # Now its a (N+graph_nodes)*64 matrix
