@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 
 
+
 class graphattention_layer(nn.Module):
     def __init__(self,input_size,output_size,adjM):
         '''WkH_{i-1} is of dimension : CurrentNodeShape x N'''  
@@ -22,9 +23,9 @@ class graphattention_layer(nn.Module):
         Attention = F.softmax(F.sigmoid(M_s+M_r))
         H_new = Attention@F.relu(self.W(H_k))
         return H_new
-
+    
 class encoder(nn.Module):
-    def __init__(self,adjM):
+    def __init__(self,adjM,input_embeddings):
         super(encoder,self).__init__( )
         ''' 
         remember that in pytorch, your input_size is the last dimension of your input
@@ -32,7 +33,7 @@ class encoder(nn.Module):
         also a row in my matrix corresponds to a cell's representation
         '''
        
-        self.layer1 = graphattention_layer(input_size=adjM.shape[0]
+        self.layer1 = graphattention_layer(input_size=input_embeddings
                                            ,output_size=512
                                            ,adjM=adjM)
         self.layer2 = graphattention_layer(input_size=512
@@ -43,18 +44,18 @@ class encoder(nn.Module):
                                            ,adjM=adjM)
     def forward(self, X):
         '''
-        X here is the adjacency matrix representing the cell graph
+        X here is the node embeddings, its of shape (N*embedding_size)
         I'm gonna tranpose it once in the start, and then at the end.
         H3 is of size N*64
         I'm gonna transpose it back to 64*N
         '''
-        H1 = self.layer1(X.T)
+        H1 = self.layer1(X)
         H2 = self.layer2(H1)
         H3 = self.layer3(H2)
-        return H3.T  
+        return H3
     
 class decoder(nn.Module):
-    def __init__(self,adjM,gene_embeddings):
+    def __init__(self,adjM,reconstruction_embedding,gene_embeddings):
         super(decoder,self).__init__()
         self.gGraph = gene_embeddings
         self.layer1 = graphattention_layer(input_size=64,
@@ -62,26 +63,27 @@ class decoder(nn.Module):
         self.layer2 = graphattention_layer(input_size=256,
                                            output_size=512,adjM=adjM)
         self.layer3 = graphattention_layer(input_size=512,
-                                           output_size=adjM.shape[0],adjM=adjM)
+                                           output_size=reconstruction_embedding,adjM=adjM)
         self.layer3_2 = graphattention_layer(input_size=512,
                                            output_size=gene_embeddings.shape[0],adjM=adjM)
     def forward(self, H):
         '''
         H here is the encoder's output
         I'm gonna stack the gene embeddings to the H matrix
-        Encoder should have returned a 64*N matrix
+        Encoder should have returned a N* 64 matrix
         Gene embeddings should be of dimension 64* num_nodes , which was 647 for the first run.
-        So we're concatenating a 64*647 matrix to a 64*N
-        '''
         
-        decoderPass = th.cat((self.gGraph, H), dim=1)
-        decoderPass = decoderPass.T
-        # Now its a (N+graph_nodes)*64 matrix
+        '''
+        # Now its a (N)*64 matrix
+        decoderPass = th.cat((self.gGraph, H.T), dim=1).T
+        # now our matrix should be (647+N (N is number of nodes ))*64
         H1 = self.layer1(decoderPass)
         H2 = self.layer2(H1)
-        reconstructed_cell_matrix = self.layer3(H2)
-        reconstructed_gene_matrix = self.layer3_2(H2)
-        return reconstructed_cell_matrix,reconstructed_gene_matrix
+        H3= self.layer3(H2)
+        ''' H3 would be of size N*N'''
+        return H3 
+    
+
 
 class scdEGA(nn.Module):
     def __init__(self,hidden_size,Cellmatrix_pca,adjM,GeneGraph):
@@ -96,7 +98,7 @@ class scdEGA(nn.Module):
         '''
         super(scdEGA,self).__init__()
         self.gc = Cellmatrix_pca
-        self.encoder = encoder(hidden_size,adjM)
+        self.encoder = encoder(hidden_size,adjM,Cellmatrix_pca.shape[1])
         self.decoder = decoder(hidden_size,adjM,GeneGraph)
     
     def unsupervised_loss_unit(self):
